@@ -1,0 +1,11 @@
+{
+    "[python]": {
+        "editor.wordBasedSuggestions": false,
+        "editor.defaultFormatter": "black",
+        "editor.formatOnSave": true
+    },
+    "python.analysis.autoImportCompletions": true,
+    "autoDocstring.docstringFormat": "numpy-notypes",
+    "autoDocstring.customTemplatePath": ".vscode/docstrings.mustache"
+}
+
