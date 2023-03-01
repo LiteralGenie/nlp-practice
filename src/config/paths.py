@@ -8,7 +8,8 @@ CONFIG_DIR = SRC_DIR / "config"
 DATA_DIR = SRC_DIR / "data"
 LOG_DIR = SRC_DIR / "logs"
 
+DATASET_DIR = DATA_DIR / "datasets"
+
 for name, path in list(locals().items()):
     if name.endswith("_DIR"):
         path.mkdir(exist_ok=True)
-
