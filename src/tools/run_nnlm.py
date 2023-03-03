@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import torch
+from classes.diplomacy_dataset import DiplomacyDataset
 from classes.enwiki_dataset import EnwikiDataset
 from classes.urban_dictionary_dataset import UrbanDictionaryDataset
 from config import paths
@@ -53,16 +54,18 @@ class Nnlm(nn.Module):
 
 if __name__ == "__main__":
     sequence_length = 5
-    freq_thresh = 100
-    batch_size = 512
+    freq_thresh = 50
+    batch_size = 32
     test_split = 0.1
-    learning_rate = 0.01
-    epochs = 100
+    learning_rate = 0.001
+    epochs = 10000
     out_dir = paths.MODEL_DIR / "nnlm"
     model_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    model_name = lambda id, loss, epoch: f"nnlm_{id}_{epoch:02}_{loss:.4f}.ckpt"
+    model_name = (
+        lambda id, ds, loss, epoch: f"nnlm_{ds.name.lower()}_{id}_{epoch:02}_{loss:.4f}.ckpt"
+    )
 
-    ds = UrbanDictionaryDataset.load(sequence_length, freq_thresh)
+    ds = DiplomacyDataset.load(sequence_length, freq_thresh)
     test_size = round(len(ds) * test_split)
     train_ds, test_ds = random_split(ds, [len(ds) - test_size, test_size])
 
@@ -95,11 +98,11 @@ if __name__ == "__main__":
             optimizer.step()
 
             total_loss += loss.item()
-            if i % 300 == 0:
+            if i % 500 == 0:
                 print(
                     f"{epoch:03} | loss: {total_loss / ((i+1) * batch_size):>7f} | {(i+1) * batch_size:,} / {len(ds):,}"
                 )
 
         if epoch % 5 == 0 and epoch > 0:
-            out_file = out_dir / model_name(model_id, total_loss / len(ds), epoch)
+            out_file = out_dir / model_name(model_id, ds, total_loss / len(ds), epoch)
             torch.save(epoch, out_file)

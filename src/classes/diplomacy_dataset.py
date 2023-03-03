@@ -15,13 +15,16 @@ VocabTally = dict[str, int]
 
 
 class _DataGenerator:
-    fp_base = paths.DATASET_DIR / "urbandict"
+    fp_base = paths.DATASET_DIR / "diplomacy"
     UNK = "<UNK>"
     END = "<END>"
 
+    def __init__(self) -> None:
+        self.fp_base.mkdir(exist_ok=True)
+
     @lru_cache(1)
-    def get_raw(self) -> list[list[str]]:
-        fp_raw = self.fp_base / "urbandict-word-defs.csv"
+    def get_raw(self) -> list[dict]:
+        fp_raw = self.fp_base / "diplomacy.jsonl"
 
         if not fp_raw.exists():
             raise Exception(
@@ -30,8 +33,7 @@ class _DataGenerator:
 
         print("Loading dataset...")
         data = fp_raw.read_text()
-        lines = data.splitlines()
-        result = [l.split(",") for l in lines]
+        result = [json.loads(l) for l in data.splitlines()]
         return result
 
     @lru_cache(1)
@@ -39,9 +41,8 @@ class _DataGenerator:
         raw_data = self.get_raw()
 
         result = []
-        for cols in raw_data:
-            line = f"{cols[1]} {cols[5]}"  # word + definition
-            result.append(line)
+        for data in raw_data:
+            result.extend(data["messages"])
 
         return result
 
@@ -149,10 +150,10 @@ class _DataGenerator:
         return (result_lines, result_vocab)
 
 
-# @DEPRECATED
-# too dirty
-class UrbanDictionaryDataset(Dataset):
-    """https://www.kaggle.com/datasets/therohk/urban-dictionary-words-datDEPRECATEDaset?resource=download"""
+class DiplomacyDataset(Dataset):
+    """https://sites.google.com/view/qanta/projects/diplomacy"""
+
+    name = "Diplomacy"
 
     def __init__(self, lines: Lines, vocab: VocabTally, sequence_length: int):
         super().__init__()
@@ -164,16 +165,14 @@ class UrbanDictionaryDataset(Dataset):
         self.index_to_vocab = {i: w for i, w in enumerate(vocab)}
 
     @classmethod
-    def load(
-        cls, sequence_length: int, freq_thresh: int = 100
-    ) -> "UrbanDictionaryDataset":
+    def load(cls, sequence_length: int, freq_thresh: int = 100) -> "DiplomacyDataset":
         lines, vocab = _DataGenerator().get_filtered_lines_vocab(
             freq_thresh, sequence_length
         )
 
         ds = cls(lines, vocab, sequence_length)
         print(
-            f"Loaded UrbanDictionary dataset with with {len(lines):,} sentences and {len(vocab):,} words and {sequence_length=}"
+            f"Loaded Diplomacy dataset with with {len(lines):,} sentences and {len(vocab):,} words and {sequence_length=}"
         )
 
         return ds
