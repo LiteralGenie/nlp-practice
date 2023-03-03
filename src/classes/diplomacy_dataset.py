@@ -28,7 +28,7 @@ class _DataGenerator:
 
         if not fp_raw.exists():
             raise Exception(
-                f"Cannot find {fp_raw}. Please download the dataset from https://www.kaggle.com/datasets/therohk/urban-dictionary-words-dataset?resource=download"
+                f"Cannot find {fp_raw}. Please download the dataset from https://sites.google.com/view/qanta/projects/diplomacy"
             )
 
         print("Loading dataset...")
@@ -42,7 +42,7 @@ class _DataGenerator:
 
         result = []
         for data in raw_data:
-            result.extend(data["messages"])
+            result.append(". ".join(data["messages"]))
 
         return result
 
@@ -158,11 +158,17 @@ class DiplomacyDataset(Dataset):
     def __init__(self, lines: Lines, vocab: VocabTally, sequence_length: int):
         super().__init__()
 
-        self.lines = [l.split() for l in lines]
         self.vocab = vocab
         self.sequence_length = sequence_length
         self.vocab_to_index = {w: i for i, w in enumerate(vocab)}
         self.index_to_vocab = {i: w for i, w in enumerate(vocab)}
+
+        self.ngrams = []
+        for l in lines:
+            words = l.split()
+            startMax = len(words) - sequence_length
+            for i in range(0, startMax + 1):
+                self.ngrams.append(words[i : i + sequence_length])
 
     @classmethod
     def load(cls, sequence_length: int, freq_thresh: int = 100) -> "DiplomacyDataset":
@@ -178,13 +184,10 @@ class DiplomacyDataset(Dataset):
         return ds
 
     def __getitem__(self, index):
-        words = self.lines[index]
+        words = self.ngrams[index]
 
-        maxStart = len(words) - self.sequence_length
-        start = round(random() * maxStart)
-        end = start + self.sequence_length
-        sample = words[start : end - 1]
-        label = words[end - 1]
+        sample = words[:-1]
+        label = words[-1]
 
         sample_idx = torch.LongTensor([self.vocab_to_index[w] for w in sample])
         label_idx = self.vocab_to_index[label]
@@ -192,4 +195,4 @@ class DiplomacyDataset(Dataset):
         return sample_idx, label_idx
 
     def __len__(self):
-        return len(self.lines)
+        return len(self.ngrams)

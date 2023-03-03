@@ -54,10 +54,10 @@ class Nnlm(nn.Module):
 
 if __name__ == "__main__":
     sequence_length = 5
-    freq_thresh = 50
-    batch_size = 32
+    freq_thresh = 30
+    batch_size = 128
     test_split = 0.1
-    learning_rate = 0.001
+    learning_rate = 0.25
     epochs = 10000
     out_dir = paths.MODEL_DIR / "nnlm"
     model_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -100,9 +100,9 @@ if __name__ == "__main__":
             total_loss += loss.item()
             if i % 500 == 0:
                 print(
-                    f"{epoch:03} | loss: {total_loss / ((i+1) * batch_size):>7f} | {(i+1) * batch_size:,} / {len(ds):,}"
+                    f"{epoch:03} | loss: {total_loss / ((i+1)):>7f} | {(i+1) * batch_size:,} / {len(ds):,}"
                 )
 
-        if epoch % 5 == 0 and epoch > 0:
+        if epoch % 50 == 0 and epoch > 0:
             out_file = out_dir / model_name(model_id, ds, total_loss / len(ds), epoch)
             torch.save(epoch, out_file)
