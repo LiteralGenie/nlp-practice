@@ -1,6 +1,6 @@
 src/data/datasets/
+src/data/models/
 venv/
 
 *.log
 *.pyc
-

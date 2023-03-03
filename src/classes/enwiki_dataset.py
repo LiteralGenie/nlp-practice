@@ -5,16 +5,18 @@ from random import random
 from typing import Tuple
 
 import torch
+from config import paths
 from torch.utils.data import DataLoader2, Dataset
 from torchtext import datasets
 from tqdm import tqdm
-
-from config import paths
+from utils.data_utils import tally_vocab
 
 Lines = list[str]
 VocabTally = dict[str, int]
 
 
+# @DEPRECATED
+# its dirty
 class EnwikiDataset(Dataset):
     """Cleaned version of http://mattmahoney.net/dc/textdata.html
 
@@ -177,7 +179,9 @@ class EnwikiDataset(Dataset):
                 vocab = json.load(file)
         else:
             print("Counting vocab...")
-            vocab = cls._tally_vocab(fp_vocab, " ".join(lines))
+            vocab = tally_vocab(" ".join(lines), verbose=True)
+            with open(fp_vocab) as file:
+                json.dump(vocab, file, indent=2)
 
         return (lines, vocab)
 
@@ -223,25 +227,3 @@ class EnwikiDataset(Dataset):
             return result.strip().lower()
 
         return main()
-
-    @classmethod
-    def _tally_vocab(cls, fp: Path, text: str) -> VocabTally:
-        """Get unique words and their frequency count"""
-
-        if fp.exists():
-            with open(fp) as file:
-                return json.load(file)
-
-        vocab = dict()
-        words = text.split()
-
-        for w in tqdm(words):
-            vocab.setdefault(w, 0)
-            vocab[w] += 1
-
-        vocab_sorted = dict(sorted(vocab.items(), key=lambda it: it[1], reverse=True))
-
-        with open(fp, "w+") as file:
-            json.dump(vocab_sorted, file, indent=2)
-
-        return vocab_sorted

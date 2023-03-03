@@ -2,6 +2,7 @@ from datetime import datetime
 
 import torch
 from classes.enwiki_dataset import EnwikiDataset
+from classes.urban_dictionary_dataset import UrbanDictionaryDataset
 from config import paths
 from torch import nn
 from torch.utils.data import DataLoader, random_split
@@ -58,10 +59,10 @@ if __name__ == "__main__":
     learning_rate = 0.01
     epochs = 100
     out_dir = paths.MODEL_DIR / "nnlm"
-    model_id = datetime.now().isoformat()
+    model_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     model_name = lambda id, loss, epoch: f"nnlm_{id}_{epoch:02}_{loss:.4f}.ckpt"
 
-    ds = EnwikiDataset.load(sequence_length, freq_thresh)
+    ds = UrbanDictionaryDataset.load(sequence_length, freq_thresh)
     test_size = round(len(ds) * test_split)
     train_ds, test_ds = random_split(ds, [len(ds) - test_size, test_size])
 
