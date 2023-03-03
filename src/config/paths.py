@@ -9,6 +9,7 @@ DATA_DIR = SRC_DIR / "data"
 LOG_DIR = SRC_DIR / "logs"
 
 DATASET_DIR = DATA_DIR / "datasets"
+MODEL_DIR = DATA_DIR / "models"
 
 for name, path in list(locals().items()):
     if name.endswith("_DIR"):
