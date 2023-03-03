@@ -4,6 +4,7 @@ from pathlib import Path
 from random import random
 from typing import Tuple
 
+import torch
 from torch.utils.data import DataLoader2, Dataset
 from torchtext import datasets
 from tqdm import tqdm
@@ -49,13 +50,13 @@ class EnwikiDataset(Dataset):
     def __getitem__(self, index):
         words = self.lines[index]
 
-        maxStart = len(words) - (self.sequence_length + 1)
+        maxStart = len(words) - self.sequence_length
         start = round(random() * maxStart)
         end = start + self.sequence_length
         sample = words[start : end - 1]
         label = words[end - 1]
 
-        sample_idx = [self.vocab_to_index[w] for w in sample]
+        sample_idx = torch.LongTensor([self.vocab_to_index[w] for w in sample])
         label_idx = self.vocab_to_index[label]
 
         return sample_idx, label_idx
@@ -80,7 +81,7 @@ class EnwikiDataset(Dataset):
         ):
             UNK = "<UNK>"
 
-            lines_filtered = lines.copy()
+            lines_filtered = []
             vocab_filtered = dict()
             vocab_filtered[UNK] = 0
 
@@ -202,13 +203,16 @@ class EnwikiDataset(Dataset):
             return lines
 
         def clean(text: str) -> str:
-            result = text.strip()
+            result = text
 
             # Convert line-breaks to spaces
             result = result.replace("\n", " ")
 
+            # Remove abnormal characters
+            result = re.sub("[^a-z0-9' ]", "", result, flags=re.IGNORECASE)
+
             # Replace periods with <END>
-            result = re.sub(r"\. ", " zENDz ", result)
+            result = re.sub(r"\. ", " <END> ", result)
 
             # Remove multi-spaces
             result = re.sub(r" +", " ", result)
@@ -216,10 +220,7 @@ class EnwikiDataset(Dataset):
             # Remove multi-quotes
             result = re.sub(r"'+", "'", result)
 
-            # Remove other characters
-            result = re.sub("[^a-z0-9' ]", "", result, flags=re.IGNORECASE)
-
-            return result
+            return result.strip().lower()
 
         return main()
 
@@ -235,7 +236,6 @@ class EnwikiDataset(Dataset):
         words = text.split()
 
         for w in tqdm(words):
-            w = w.lower()
             vocab.setdefault(w, 0)
             vocab[w] += 1
 
