@@ -181,7 +181,7 @@ class DiplomacyDataset(Dataset):
 
         ds = cls(lines, vocab, sequence_length)
         print(
-            f"Loaded Diplomacy dataset with with {len(lines):,} sentences and {len(vocab):,} words and {sequence_length=}"
+            f"Loaded Diplomacy dataset with {len(lines):,} sentences and {sum(vocab.values():,)} total words and {len(vocab):,} unique words and {sequence_length=}"
         )
 
         return ds
