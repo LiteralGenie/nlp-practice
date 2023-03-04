@@ -13,11 +13,12 @@ from utils.data_utils import tally_vocab
 Lines = list[str]
 VocabTally = dict[str, int]
 
+UNK = "<UNK>"
+END = "<END>"
+
 
 class _DataGenerator:
     fp_base = paths.DATASET_DIR / "diplomacy"
-    UNK = "<UNK>"
-    END = "<END>"
 
     def __init__(self) -> None:
         self.fp_base.mkdir(exist_ok=True)
@@ -115,7 +116,7 @@ class _DataGenerator:
 
         result_lines = []
         result_vocab = dict()
-        result_vocab[self.UNK] = 0
+        result_vocab[UNK] = 0
 
         lines = self.get_cleaned_lines()
         vocab = self.get_vocab_tally()
@@ -131,8 +132,8 @@ class _DataGenerator:
 
             for i, w in enumerate(words):
                 if w not in whitelist:
-                    words[i] = self.UNK
-                    result_vocab[self.UNK] += 1
+                    words[i] = UNK
+                    result_vocab[UNK] += 1
                 else:
                     result_vocab.setdefault(w, 0)
                     result_vocab[w] += 1
@@ -154,6 +155,8 @@ class DiplomacyDataset(Dataset):
     """https://sites.google.com/view/qanta/projects/diplomacy"""
 
     name = "Diplomacy"
+    UNK = UNK
+    END = END
 
     def __init__(self, lines: Lines, vocab: VocabTally, sequence_length: int):
         super().__init__()
