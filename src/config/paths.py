@@ -11,6 +11,9 @@ LOG_DIR = SRC_DIR / "logs"
 DATASET_DIR = DATA_DIR / "datasets"
 MODEL_DIR = DATA_DIR / "models"
 
+CONFIG_FILE = CONFIG_DIR / "config.toml"
+SECRETS_FILE = CONFIG_DIR / "secrets.toml"
+
 for name, path in list(locals().items()):
     if name.endswith("_DIR"):
         path.mkdir(exist_ok=True)

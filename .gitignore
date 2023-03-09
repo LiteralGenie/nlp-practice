@@ -1,5 +1,7 @@
 src/data/datasets/
 src/data/models/
+src/config/secrets.toml
+src/config/config.toml
 venv/
 
 *.log

@@ -1,14 +1,26 @@
 {
   "[python]": {
-    "editor.wordBasedSuggestions": false,
-    "editor.defaultFormatter": "ms-python.black-formatter",
-    "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {
       "source.organizeImports": true
-    }
+    },
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true
   },
-  "python.analysis.typeCheckingMode": "basic",
+  "autoDocstring.docstringFormat": "numpy-notypes",
   "isort.args": ["--profile", "black"],
+  "python.analysis.typeCheckingMode": "basic",
+  "terminal.integrated.env.linux": {
+    "PYTHONPATH": "${workspaceFolder}/src"
+  },
+
+  // Optional
+  "editor.inlayHints.fontSize": 10,
+  "editor.wordBasedSuggestions": false,
   "python.analysis.autoImportCompletions": true,
-  "autoDocstring.docstringFormat": "numpy-notypes"
+  "python.analysis.autoImportUserSymbols": true,
+  "python.analysis.inlayHints.functionReturnTypes": true,
+  "python.analysis.inlayHints.variableTypes": true,
+  "workbench.colorCustomizations": {
+    "editorInlayHint.background": "#00000000"
+  }
 }
