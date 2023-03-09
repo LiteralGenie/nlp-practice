@@ -5,9 +5,10 @@ from random import random
 from typing import Tuple
 
 import torch
-from config import paths
 from torch.utils.data import Dataset
 from tqdm import tqdm
+
+from config import paths
 from utils.data_utils import tally_vocab
 
 Lines = list[str]
@@ -181,7 +182,7 @@ class DiplomacyDataset(Dataset):
 
         ds = cls(lines, vocab, sequence_length)
         print(
-            f"Loaded Diplomacy dataset with {len(lines):,} sentences and {sum(vocab.values():,)} total words and {len(vocab):,} unique words and {sequence_length=}"
+            f"Loaded Diplomacy dataset with {len(lines):,} sentences and {sum(vocab.values()):,} total words and {len(vocab):,} unique words and {sequence_length=}"
         )
 
         return ds

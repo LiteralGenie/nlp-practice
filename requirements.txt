@@ -1,6 +1,7 @@
 discord
 loguru
 tdqm
+tomlkit
 torch
 torchdata
 torchtext
