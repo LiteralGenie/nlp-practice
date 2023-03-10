@@ -3,7 +3,7 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Any, Tuple, TypedDict, cast
+from typing import Any, Optional, Tuple, TypedDict, cast
 
 import torch
 from discord import Intents, Message, TextChannel, Thread
@@ -25,8 +25,8 @@ logger.add(
 
 
 class _ChannelMessage(TypedDict):
-    _message: "_DiscordMessage"
-    _user: "_DiscordUser"
+    message: "_DiscordMessage"
+    user: "_DiscordUser"
 
 
 class _ChannelHistory(TypedDict):
@@ -58,8 +58,6 @@ class _Database:
                     date_created    REAL        NOT NULL,
                     date_edited     REAL        NOT NULL,
                     date_scraped    REAL        NOT NULL,
-                    is_bot          INTEGER     NOT NULL,
-                    user_name       TEXT        NOT NULL,
 
                     PRIMARY KEY (id),
                     FOREIGN KEY (id_user) REFERENCES users,
@@ -86,6 +84,7 @@ class _Database:
                 CREATE TABLE IF NOT EXISTS channels (
                     id              INTEGER     NOT NULL,
 
+                    date_created    REAL        NOT NULL,
                     name            TEXT        NOT NULL,
 
                     PRIMARY KEY (id)
@@ -93,11 +92,10 @@ class _Database:
                 """
             )
 
-    @classmethod
-    def connect(cls):
-        cls.db_fp.mkdir(exist_ok=True)
+    def connect(self):
+        self.db_fp.parent.mkdir(exist_ok=True)
 
-        db = sqlite3.connect(cls.db_fp)
+        db = sqlite3.connect(self.db_fp)
         db.row_factory = sqlite3.Row
 
         return db
@@ -106,8 +104,9 @@ class _Database:
         with self.connect() as DB:
             raw_messages: list[_DiscordMessage] = DB.execute(
                 f"""
-                SELECT * FROM messages,
+                SELECT * FROM messages
                 WHERE id_channel = ?
+                ORDER BY data_created asc
                 """,
                 (id,),
             ).fetchall()
@@ -122,17 +121,55 @@ class _Database:
             channel: _DiscordChannel = DB.execute(
                 f"""
                 SELECT * FROM channels
-                wHERE id = ? 
+                WHERE id = ? 
                 """,
                 (id,),
             ).fetchone()
 
-        messages = []
+        messages: list[_ChannelMessage] = []
         for m in raw_messages:
-            messages.append(dict(message=m, user=users[m["id_user"]]))
+            messages.append(_ChannelMessage(message=m, user=users[m["id_user"]]))
 
         result = _ChannelHistory(messages=messages, channel=channel)
         return result
+
+    def insert(
+        self,
+        message: Optional["_DiscordMessage"] = None,
+        channel: Optional["_DiscordChannel"] = None,
+        user: Optional["_DiscordUser"] = None,
+    ):
+        with self.connect() as DB:
+            if user:
+                DB.execute(
+                    """
+                    INSERT OR REPLACE INTO users
+                    ( id,  is_bot,  name) VALUES
+                    (:id, :is_bot, :name)
+                    """,
+                    user,
+                )
+
+            if channel:
+                DB.execute(
+                    """
+                    INSERT OR REPLACE INTO channels
+                    ( id,  date_created,  name) VALUES
+                    (:id, :date_created, :name)
+                    """,
+                    channel,
+                )
+
+            if message:
+                DB.execute(
+                    """
+                    INSERT INTO messages 
+                    ( id,  id_user,  id_channel,  id_guild,  content,  date_created,  date_edited,  date_scraped) VALUES
+                    (:id, :id_user, :id_channel, :id_guild, :content, :date_created, :date_edited, :date_scraped)
+                    """,
+                    message,
+                )
+        pass
 
 
 class _ChRequest(TypedDict):
@@ -200,7 +237,7 @@ class _Bot(commands.Bot):
         bot._tgt_channels = channels
         bot.run(SECRETS["discord_key"])  # type: ignore
 
-        return bot._messages
+        return (bot._messages, bot._users, bot._channels)
 
     async def _scrape(self):
         for tgt in self._tgt_channels:
@@ -293,12 +330,13 @@ class _Scraper:
 
         CONFIG = load_toml(paths.CONFIG_FILE)
 
+        # Scrape
         requests = []
         for id in CONFIG["discord"]["scraped_channels"]:  # type: ignore
             before = None
             after = None
 
-            with _Database.connect() as DB:
+            with _Database().connect() as DB:
                 min_date = DB.execute(
                     """
                     SELECT date_created FROM messages
@@ -324,22 +362,16 @@ class _Scraper:
             req = _ChRequest(channel_id=id, before=before, after=after)
             requests.append(req)
 
-        result = []
+        # Save
         for req in requests:
-            msgs = _Bot.scrape([req])
-            with _Database().connect() as DB:
-                for m in msgs:
-                    DB.execute(
-                        """
-                        INSERT INTO messages 
-                        ( id,  id_user,  id_channel,  id_guild,  content,  date_created,  date_edited,  date_scraped,  is_bot,  user_name) VALUES
-                        (:id, :id_user, :id_channel, :id_guild, :content, :date_created, :date_edited, :date_scraped, :is_bot, :user_name)
-                        """,
-                        m,
-                    )
-            result.extend(msgs)
+            messages, users, channels = _Bot.scrape([req])
 
-        return result
+            for ch in channels.values():
+                _Database().insert(channel=ch)
+            for user in users.values():
+                _Database().insert(user=user)
+            for msg in messages:
+                _Database().insert(message=msg)
 
     def get_data(self) -> list[_ChannelHistory]:
         """
@@ -369,50 +401,53 @@ class _Generator:
 
     @lru_cache(1)
     def get_lines(self) -> Lines:
-        data = _Scraper().get_data()
+        result: Lines = []
 
-        # Filter non-conversational messages
-        data_filtered: list[_DiscordMessage] = []
-        for m in data:
-            if m["is_bot"]:
-                continue
-            if m["content"].strip().startswith("!"):
-                continue
-            data_filtered.append(m)
+        for history in _Scraper().get_data():
+            # Filter bot commands and output
+            messages_filtered: list[_ChannelMessage] = []
+            for m in history["messages"]:
+                if m["user"]["is_bot"]:
+                    continue
+                if m["message"]["content"].strip().startswith("!"):
+                    continue
+                messages_filtered.append(m)
 
-        # Group by channel
-        data_channels: dict[int, list[_DiscordMessage]] = dict()
-        for m in data_filtered:
-            data_channels.setdefault(m["id_channel"], [])
-            data_channels[m["id_channel"]].append(m)
+            # Group consecutive messages from same user
+            messages_grouped_by_user: list[list[_ChannelMessage]] = []
 
-        # Group consecutive messages
-        data_users: dict[int, list[list[_DiscordMessage]]] = dict()
-        for ch, msgs in data_channels.items():
-            data_users[ch] = []
-            msgs.sort(key=lambda d: d["date_created"])
-            msgs = list(msgs)
+            buffer = [messages_filtered[0]]
+            current_user = buffer[0]["user"]
 
-            buffer = [msgs.pop(0)]
-            current_user = buffer[0]["id_user"]
-            while msgs:
-                m = msgs.pop(0)
-                u = m["id_user"]
-                if u != current_user:
-                    data_users[ch].append(buffer)
+            for msg in messages_filtered[1:]:
+                new_user = msg["user"]
+                if new_user["id"] != current_user["id"]:
+                    messages_grouped_by_user.append((buffer))
 
-                    buffer = [m]
-                    current_user = u
+                    buffer = [msg]
+                    current_user = new_user
                 else:
-                    buffer.append(m)
+                    buffer.append(msg)
             if buffer:
-                data_users[ch].append(buffer)
+                messages_grouped_by_user.append((buffer))
 
-        # Prefix message groups with user
-        result: list[str] = []
-        # @TODO
+            # Stringify
+            parts: list[str] = []
+            for messages in messages_grouped_by_user:
+                pt = []
+                user = messages[0]["user"]
 
-        return list(data_users.values())
+                for m in messages:
+                    pt.append(m["message"]["content"].strip())
+
+                pt_text = f"{user['name'].capitalize()}: "
+                pt_text += "\n".join(s for s in pt)
+                parts.append(pt_text)
+
+            parts_text = "\n".join(parts)
+            result.append(parts_text)
+
+        return result
 
     @lru_cache(1)
     def get_cleaned_lines(self) -> Lines:
