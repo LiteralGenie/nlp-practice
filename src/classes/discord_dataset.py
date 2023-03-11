@@ -3,7 +3,7 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Any, Optional, Tuple, TypedDict, cast
+from typing import Optional, Tuple, TypedDict, cast
 
 import torch
 from discord import Intents, Message, TextChannel, Thread
@@ -12,6 +12,7 @@ from loguru import logger
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
+from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from config import paths
 from utils.data_utils import tally_vocab
@@ -20,7 +21,7 @@ from utils.misc import load_toml
 logger = logger.bind(cat="discord")
 logger.add(
     paths.LOG_DIR / "discord_dataset.log",
-    filter=lambda d: bool(d["extra"].get("discord")),
+    filter=lambda d: d["extra"].get("cat") == "discord",
 )
 
 
@@ -106,7 +107,7 @@ class _Database:
                 f"""
                 SELECT * FROM messages
                 WHERE id_channel = ?
-                ORDER BY data_created asc
+                ORDER BY date_created asc
                 """,
                 (id,),
             ).fetchall()
@@ -403,7 +404,8 @@ class _Generator:
     def get_lines(self) -> Lines:
         result: Lines = []
 
-        for history in _Scraper().get_data():
+        print("Loading cached messages...")
+        for history in tqdm(_Scraper().get_data()):
             # Filter bot commands and output
             messages_filtered: list[_ChannelMessage] = []
             for m in history["messages"]:
@@ -553,54 +555,82 @@ class _Generator:
         return (result_lines, result_vocab)
 
 
+class _Ngram(TypedDict):
+    seq_idx: int
+    start_idx: int
+    end_idx: int
+
+
 # @todo reusable n-gram dataset
 class DiscordDataset(Dataset):
     name = "Discord"
     UNK = UNK
     END = END
+    NEWLINE = NEWLINE
 
-    def __init__(self, lines: Lines, vocab: VocabTally, sequence_length: int):
+    ngrams: list[_Ngram]
+
+    def __init__(
+        self,
+        sequences: list[list[int]],
+        tokenizer: PreTrainedTokenizer,
+        sequence_length: int,
+    ):
         super().__init__()
 
-        self.vocab = vocab
+        self.sequences = sequences
+        self.tokenizer = tokenizer
         self.sequence_length = sequence_length
-        self.vocab_to_index = {w: i for i, w in enumerate(vocab)}
-        self.index_to_vocab = {i: w for i, w in enumerate(vocab)}
 
         self.ngrams = []
-        for l in lines:
-            words = l.split()
-            startMax = len(words) - sequence_length
-            for i in range(0, startMax + 1):
-                self.ngrams.append(words[i : i + sequence_length])
+        for seq_idx, seq in enumerate(sequences):
+            if len(seq) < sequence_length:
+                logger.warning(
+                    f"Skipping sequence {seq_idx} with less than {sequence_length} tokens"
+                )
+                continue
+
+            for token_idx, token in enumerate(seq[:-sequence_length]):
+                self.ngrams.append(
+                    _Ngram(
+                        seq_idx=seq_idx,
+                        start_idx=token_idx,
+                        end_idx=token_idx + sequence_length,
+                    )
+                )
 
     @classmethod
-    def load(cls, sequence_length: int, freq_thresh: int = 100) -> "DiscordDataset":
-        lines, vocab = _Generator().get_filtered_lines_vocab(
-            freq_thresh, sequence_length
-        )
+    def load(
+        cls, tokenizer: PreTrainedTokenizer, sequence_length: int
+    ) -> "DiscordDataset":
+        lines = _Generator().get_lines()
 
-        ds = cls(lines, vocab, sequence_length)
+        print("Tokenizing messages...")
+        token_seqs = [tokenizer.encode(l) for l in tqdm(lines)]
+        ds = cls(token_seqs, tokenizer, sequence_length)
         logger.info(
-            f"Loaded Discord dataset with {len(lines):,} sentences and {sum(vocab.values()):,} total words and {len(vocab):,} unique words and {sequence_length=}"
+            f"Loaded {cls.name} dataset with {len(lines):,} sentences and {sum(len(x) for x in token_seqs):,} total tokens and {len(ds):,} total samples and {sequence_length=:,}"
         )
 
         return ds
 
     def __getitem__(self, index):
-        words = self.ngrams[index]
+        data = self.ngrams[index]
 
-        sample = words[:-1]
-        label = words[-1]
+        seq = self.sequences[data["seq_idx"]]
+        start = data["start_idx"]
+        end = data["end_idx"]
 
-        sample_idx = torch.LongTensor([self.vocab_to_index[w] for w in sample])
-        label_idx = self.vocab_to_index[label]
+        sample = torch.LongTensor(seq[start:end])
+        label = seq[end]
 
-        return sample_idx, label_idx
+        # return dict(text=self.tokenizer.decode(sample), label=torch.LongTensor([label]))
+        return sample, label
 
     def __len__(self):
         return len(self.ngrams)
 
 
 if __name__ == "__main__":
+    # @TODO: generate dataset and cache after fetching messages
     _Scraper().fetch_messages()

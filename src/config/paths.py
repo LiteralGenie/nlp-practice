@@ -8,6 +8,7 @@ CONFIG_DIR = SRC_DIR / "config"
 DATA_DIR = SRC_DIR / "data"
 LOG_DIR = SRC_DIR / "logs"
 
+CHECKPOINT_DIR = DATA_DIR / "checkpoints"
 DATASET_DIR = DATA_DIR / "datasets"
 MODEL_DIR = DATA_DIR / "models"
 

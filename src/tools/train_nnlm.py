@@ -2,13 +2,15 @@ from datetime import datetime
 from random import random
 
 import torch
+from torch import LongTensor, nn
+from torch.utils.data import DataLoader, random_split
+
 from classes.diplomacy_dataset import DiplomacyDataset
+from classes.discord_dataset import DiscordDataset
 from classes.enwiki_dataset import EnwikiDataset
 from classes.simple_dataset import SimpleDataset
 from classes.urban_dictionary_dataset import UrbanDictionaryDataset
 from config import paths
-from torch import LongTensor, nn
-from torch.utils.data import DataLoader, random_split
 
 Lines = list[str]
 VocabTally = dict[str, int]
@@ -62,7 +64,7 @@ if __name__ == "__main__":
     learning_rate = 0.01
     momentum = 0.1
     epochs = 10000
-    out_dir = paths.MODEL_DIR / "nnlm"
+    out_dir = paths.CHECKPOINT_DIR / "nnlm"
     model_id = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     model_name = (
         lambda id, ds, acc, loss, epoch: f"nnlm_{ds.name.lower()}_{id}_{epoch:02}_{acc*100:.2f}_{loss:.4f}.ckpt"
