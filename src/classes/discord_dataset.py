@@ -16,6 +16,7 @@ from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
+from classes.cache import JsonCache, PickleCache
 from config import paths
 from utils.data_utils import tally_vocab
 from utils.misc import load_toml
@@ -503,17 +504,19 @@ class DiscordDataset(Dataset):
 
     @classmethod
     def load(
-        cls, tokenizer: PreTrainedTokenizer, sequence_length: int
+        cls, tokenizer: PreTrainedTokenizer, sequence_length: int, from_cache=False
     ) -> "DiscordDataset":
-        cache = paths.DATASET_DIR / "discord" / "_temp.pkl"
-        if cache.exists():
-            token_seqs = pickle.load(open(cache, "rb"))
-        else:
+        cache = PickleCache(paths.CACHE_DIR / "discord" / "token_seqs.pkl")
+        cache_meta = dict(sequence_length=sequence_length)
+
+        token_seqs = None
+        if from_cache:
+            token_seqs = cache.load(meta=cache_meta)
+        if token_seqs is None:
             logger.info("Tokenizing messages...")
             lines = _Generator().get_seqs_by_channel()
             token_seqs = [tokenizer.encode(l) for l in tqdm(lines)]
-            with open(cache, "wb+") as file:
-                pickle.dump(token_seqs, file)
+            cache.dump(token_seqs, meta=cache_meta)
 
         ds = cls(token_seqs, tokenizer, sequence_length)
         logger.info(
