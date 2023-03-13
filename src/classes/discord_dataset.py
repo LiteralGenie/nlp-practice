@@ -1,8 +1,10 @@
 import json
+import pickle
 import re
 import sqlite3
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional, Tuple, TypedDict, cast
 
 import torch
@@ -18,11 +20,12 @@ from config import paths
 from utils.data_utils import tally_vocab
 from utils.misc import load_toml
 
-logger = logger.bind(cat="discord")
 logger.add(
     paths.LOG_DIR / "discord_dataset.log",
     filter=lambda d: d["extra"].get("cat") == "discord",
 )
+
+file_log = logger.bind(cat="discord")
 
 
 class _ChannelMessage(TypedDict):
@@ -258,7 +261,7 @@ class _Bot(commands.Bot):
                 )
 
             if not isinstance(ch, (TextChannel, Thread)):
-                logger.error(
+                file_log.error(
                     f"Channel {getattr(ch, 'name', '???')} ({ch.id}) should be TextChannel and not {ch.__class__}"
                 )
                 return
@@ -272,7 +275,7 @@ class _Bot(commands.Bot):
                 )
 
             # Prep for saving messages
-            logger.info(f"Scraping channel {ch.name} ({ch.id})")
+            file_log.info(f"Scraping channel {ch.name} ({ch.id})")
             found: list[_DiscordMessage] = []
 
             history_iters = []
@@ -315,7 +318,7 @@ class _Bot(commands.Bot):
                         )
 
             self._messages.extend(found)
-            logger.info(f"Found {len(found)} new messages")
+            file_log.info(f"Found {len(found)} new messages")
 
 
 class _Scraper:
@@ -401,7 +404,9 @@ class _Generator:
         self.fp_base.mkdir(exist_ok=True)
 
     @lru_cache(1)
-    def get_lines(self) -> Lines:
+    def get_seqs_by_channel(self) -> Lines:
+        """Returns one huge string per channel"""
+
         result: Lines = []
 
         print("Loading cached messages...")
@@ -450,109 +455,6 @@ class _Generator:
             result.append(parts_text)
 
         return result
-
-    @lru_cache(1)
-    def get_cleaned_lines(self) -> Lines:
-        fp_cleaned = self.fp_base / "cleaned.json"
-        if fp_cleaned.exists():
-            with open(fp_cleaned) as file:
-                return json.load(file)
-
-        result = []
-        lines = self.get_lines()
-
-        print("Cleaning data...")
-        for l in tqdm(lines):
-            cleaned = l
-
-            # Convert line-breaks to spaces
-            cleaned = cleaned.replace("\n", f" {NEWLINE} ")
-
-            # Remove abnormal characters
-            cleaned = re.sub("[^a-z0-9' ]", "", cleaned, flags=re.IGNORECASE)
-
-            # Remove multi-spaces
-            cleaned = re.sub(r" +", " ", cleaned)
-
-            # Remove multi-quotes
-            cleaned = re.sub(r"'+", "'", cleaned)
-
-            cleaned = cleaned.strip().lower()
-            result.append(cleaned)
-
-        with open(fp_cleaned, "w+") as file:
-            json.dump(result, file, indent=2)
-
-        return result
-
-    @lru_cache(1)
-    def get_vocab_tally(self) -> VocabTally:
-        fp_vocab = self.fp_base / "vocab.json"
-        if fp_vocab.exists():
-            with open(fp_vocab) as file:
-                return json.load(file)
-
-        lines = self.get_cleaned_lines()
-
-        print("Counting vocab...")
-        result = tally_vocab("\n".join(lines), verbose=True)
-
-        with open(fp_vocab, "w+") as file:
-            json.dump(result, file, indent=2)
-
-        return result
-
-    @lru_cache(1)
-    def get_filtered_lines_vocab(
-        self, freq_thresh: int, length_thresh: int
-    ) -> Tuple[Lines, VocabTally]:
-        fp_filtered = self.fp_base / "filtered.json"
-        if fp_filtered.exists():
-            with open(fp_filtered) as file:
-                result = json.load(file)
-                cached_freq_thresh = result["meta"].get("freq_thresh")
-                cached_length_thresh = result["meta"].get("length_thresh")
-                if (
-                    cached_freq_thresh == freq_thresh
-                    and cached_length_thresh == length_thresh
-                ):
-                    return result["lines"], result["vocab"]
-
-        result_lines = []
-        result_vocab = dict()
-        result_vocab[UNK] = 0
-
-        lines = self.get_cleaned_lines()
-        vocab = self.get_vocab_tally()
-
-        whitelist = set(k for k, v in vocab.items() if v >= freq_thresh)
-
-        logger.info("Filtering...")
-        for l in tqdm(lines):
-            words = l.split()
-
-            if len(words) < length_thresh:
-                continue
-
-            for i, w in enumerate(words):
-                if w not in whitelist:
-                    words[i] = UNK
-                    result_vocab[UNK] += 1
-                else:
-                    result_vocab.setdefault(w, 0)
-                    result_vocab[w] += 1
-
-            result_lines.append(" ".join(words))
-
-        with open(fp_filtered, "w+") as file:
-            result = dict(
-                lines=result_lines,
-                vocab=result_vocab,
-                meta=dict(freq_thresh=freq_thresh, length_thresh=length_thresh),
-            )
-            json.dump(result, file, indent=2)
-
-        return (result_lines, result_vocab)
 
 
 class _Ngram(TypedDict):
@@ -603,13 +505,19 @@ class DiscordDataset(Dataset):
     def load(
         cls, tokenizer: PreTrainedTokenizer, sequence_length: int
     ) -> "DiscordDataset":
-        lines = _Generator().get_lines()
+        cache = paths.DATASET_DIR / "discord" / "_temp.pkl"
+        if cache.exists():
+            token_seqs = pickle.load(open(cache, "rb"))
+        else:
+            logger.info("Tokenizing messages...")
+            lines = _Generator().get_seqs_by_channel()
+            token_seqs = [tokenizer.encode(l) for l in tqdm(lines)]
+            with open(cache, "wb+") as file:
+                pickle.dump(token_seqs, file)
 
-        print("Tokenizing messages...")
-        token_seqs = [tokenizer.encode(l) for l in tqdm(lines)]
         ds = cls(token_seqs, tokenizer, sequence_length)
         logger.info(
-            f"Loaded {cls.name} dataset with {len(lines):,} sentences and {sum(len(x) for x in token_seqs):,} total tokens and {len(ds):,} total samples and {sequence_length=:,}"
+            f"Loaded {cls.name} dataset with {sum(len(x) for x in token_seqs):,} total tokens and {len(ds):,} total samples and {sequence_length=:,}"
         )
 
         return ds
@@ -622,9 +530,8 @@ class DiscordDataset(Dataset):
         end = data["end_idx"]
 
         sample = torch.LongTensor(seq[start:end])
-        label = seq[end]
+        label = torch.LongTensor([seq[end]])
 
-        # return dict(text=self.tokenizer.decode(sample), label=torch.LongTensor([label]))
         return sample, label
 
     def __len__(self):

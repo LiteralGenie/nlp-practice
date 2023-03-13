@@ -1,7 +1,15 @@
-discord
+discord.py
 loguru
 tdqm
 tomlkit
 torch
 torchdata
 torchtext
+
+accelerate
+bitsandbytes
+deepspeed
+evaluate
+mpi4py # need to `apt install libopenmpi-dev` for this to compile
+scikit-learn
+transformers
