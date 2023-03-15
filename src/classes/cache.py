@@ -3,6 +3,8 @@ import pickle
 from pathlib import Path
 from typing import IO, Any
 
+from loguru import logger
+
 
 class _Cache:
     """
@@ -45,8 +47,13 @@ class _Cache:
             raw_data = self._load(file)
 
             if meta:
-                is_meta_changed = self.is_dict_equal(meta, raw_data.get("meta", dict()))
+                is_meta_changed = not self.is_dict_equal(
+                    meta, raw_data.get("meta", dict())
+                )
                 if is_meta_changed:
+                    logger.info(
+                        f'Cache file exists but meta data does not match.\n{self.fp}\nExpected:\t{meta}\nRead:\t{raw_data.get("meta")}'
+                    )
                     return None
 
             return raw_data["data"]

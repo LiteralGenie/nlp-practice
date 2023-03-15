@@ -1,11 +1,7 @@
-import json
-import pickle
-import re
 import sqlite3
 from datetime import datetime, timezone
 from functools import lru_cache
-from pathlib import Path
-from typing import Optional, Tuple, TypedDict, cast
+from typing import Optional, TypedDict, cast
 
 import torch
 from discord import Intents, Message, TextChannel, Thread
@@ -16,7 +12,7 @@ from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
-from classes.cache import JsonCache, PickleCache
+from classes.cache import PickleCache
 from config import paths
 from utils.data_utils import tally_vocab
 from utils.misc import load_toml
@@ -410,7 +406,7 @@ class _Generator:
 
         result: Lines = []
 
-        print("Loading cached messages...")
+        logger.info("Loading cached messages...")
         for history in tqdm(_Scraper().get_data()):
             # Filter bot commands and output
             messages_filtered: list[_ChannelMessage] = []
@@ -448,7 +444,7 @@ class _Generator:
                 for m in messages:
                     pt.append(m["message"]["content"].strip())
 
-                pt_text = f"{user['name'].capitalize()}: "
+                pt_text = f"{user['name'].lower()}: "
                 pt_text += "\n".join(s for s in pt)
                 parts.append(pt_text)
 
@@ -513,8 +509,9 @@ class DiscordDataset(Dataset):
         if from_cache:
             token_seqs = cache.load(meta=cache_meta)
         if token_seqs is None:
-            logger.info("Tokenizing messages...")
             lines = _Generator().get_seqs_by_channel()
+
+            logger.info("Tokenizing messages...")
             token_seqs = [tokenizer.encode(l) for l in tqdm(lines)]
             cache.dump(token_seqs, meta=cache_meta)
 
@@ -544,3 +541,5 @@ class DiscordDataset(Dataset):
 if __name__ == "__main__":
     # @TODO: generate dataset and cache after fetching messages
     _Scraper().fetch_messages()
+    # tokenizer = AutoTokenizer.from_pretrained("facebook/opt-2.7b", use_fast=False)
+    # DiscordDataset.load(from_cache=False, sequence_length=1024, tokenizer=tokenizer)
