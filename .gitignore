@@ -1,3 +1,4 @@
+src/cache/
 src/data/checkpoints/
 src/data/datasets/
 src/data/models/
