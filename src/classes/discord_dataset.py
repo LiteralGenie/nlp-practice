@@ -111,13 +111,14 @@ class _Database:
                 """,
                 (id,),
             ).fetchall()
+            raw_messages = [dict(x) for x in raw_messages]
 
             users = DB.execute(
                 f"""
                 SELECT * FROM users
                 """
             ).fetchall()
-            users = {u["id"]: u for u in users}
+            users = {u["id"]: dict(u) for u in users}
 
             channel: _DiscordChannel = DB.execute(
                 f"""
@@ -126,6 +127,7 @@ class _Database:
                 """,
                 (id,),
             ).fetchone()
+            channel = dict(channel)
 
         messages: list[_ChannelMessage] = []
         for m in raw_messages:

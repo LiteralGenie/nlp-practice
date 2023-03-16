@@ -38,7 +38,7 @@ class _Cache:
 
     def load(
         self,
-        meta: dict | None,
+        meta: dict | None = None,
     ) -> Any | None:
         if not self.fp.exists():
             return None

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import deepspeed
 import fire
@@ -12,7 +13,12 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, OPTForCausalLM, PreTrainedTokenizer
 
 from classes.discord_dataset import DiscordDataset
+from classes.discord_instructions import DiscordInstructions
+from classes.instruction_dataset import InstructionDataset
+from classes.merged_dataset import MergedDataset
 from config import paths
+
+torch.manual_seed(123)
 
 ###
 
@@ -23,14 +29,15 @@ class _Params:
     batch_size_test: int | None = None
     epochs: int = 10
     loss_window: int = 50
-    lr: float = 1e-5
-    model_id: str = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    lr: float = 2e-5
+    model_id: str = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     out_dir: str = str(paths.CHECKPOINT_DIR / "opt2.7")
     resume_from: str | None = str(paths.CHECKPOINT_DIR / "opt2.7")
     save_steps: int = 200
     sequence_length: int = 1024
-    test_split: float = 0.00005
+    test_split: float = 0.1
     use_cached_data: bool = True
+    weight_decay: float = 0
 
     out_dir_fp: Path = field(init=False)
     resume_from_fp: Path | None = field(init=False)
@@ -41,6 +48,10 @@ class _Params:
 
 
 ###
+
+
+def get_model_name(id, ds, acc, loss, epoch):
+    return f"opt_{ds.name.lower()}_{id}_{epoch:02}_{acc:.2f}_{loss:.4f}"
 
 
 def main(**kwargs: _Params):
@@ -54,7 +65,9 @@ def train(p: _Params):
     model: OPTForCausalLM = OPTForCausalLM.from_pretrained("facebook/opt-2.7b")  # type: ignore
 
     logger.info("Loading dataset")
-    ds = DiscordDataset.load(tokenizer, p.sequence_length, from_cache=p.use_cached_data)
+    ds_discord = DiscordInstructions.load(tokenizer, p.sequence_length, from_cache=True)
+    ds_instructions = InstructionDataset.load(tokenizer, p.sequence_length)
+    ds = MergedDataset([ds_discord, ds_instructions])
 
     test_size = round(len(ds) * p.test_split)
     train_ds, test_ds = random_split(ds, [len(ds) - test_size, test_size])
@@ -77,6 +90,7 @@ def train(p: _Params):
             type="AdamW",
             params=dict(
                 lr=p.lr,
+                weight_decay=p.weight_decay,
             ),
         ),
         zero_optimization=dict(
@@ -95,19 +109,15 @@ def train(p: _Params):
         steps_per_print=1e10,
     )
     logger.info("Initializing engine")
-    model_engine, optimizer, _, _ = deepspeed.initialize(
+    model_engine, _, _, _ = deepspeed.initialize(
         config=config,
         model=model,
     )
-
     if p.resume_from_fp:
         logger.info(f"Resuming from {p.resume_from_fp}")
         model_engine.load_checkpoint(load_dir=p.resume_from_fp)
 
     ###
-
-    def get_model_name(id, ds, acc, loss, epoch):
-        return f"opt_{ds.name.lower()}_{id}_{epoch:02}_{acc:.2f}_{loss:.4f}"
 
     for epoch_idx in range(p.epochs):
         print("epoch", epoch_idx)

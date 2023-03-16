@@ -1,4 +1,6 @@
 src/cache/
+# /checkpoints is ignored twice because the one with no-trailing-slash is a symlink
+src/data/checkpoints
 src/data/checkpoints/
 src/data/datasets/
 src/data/models/
