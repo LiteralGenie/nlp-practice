@@ -11,6 +11,6 @@ accelerate
 bitsandbytes
 deepspeed
 evaluate
-mpi4py # need to `apt install libopenmpi-dev` for this to compile
+mpi4py # need to `apt install libopenmpi-dev python3-dev` for this to compile
 scikit-learn
 transformers

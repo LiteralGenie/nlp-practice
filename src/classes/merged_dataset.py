@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 class MergedDataset(Dataset):
     def __init__(self, datasets: list[Dataset]):
         self.datasets = datasets
+        self.name = "_".join(getattr(ds, "name", "??") for ds in self.datasets)
 
         idx = 0
         self.start_idxs = [0]

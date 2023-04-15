@@ -143,14 +143,16 @@ class DiscordInstructions(Dataset):
 
         result: list[_ChannelData] = []
         buffer = _ChannelData(channel=channel, messages=[messages[0]])
-        pbar = tqdm(messages[1:100], desc=f"Partitioning #{channel['name']}...")
+        pbar = tqdm(messages[1:], desc=f"Partitioning #{channel['name']}...")
         for msg in pbar:
             tentative_msgs = buffer["messages"] + [msg]
             tentative_buffer = _ChannelData(channel=channel, messages=tentative_msgs)
 
-            instruction = cls._format_instruction(tentative_buffer, randomize=False)
-            input = cls._format_input(tentative_buffer)
-            length = len(tokenizer.encode(format_prompt(instruction, input)))
+            input = cls._format_input(tentative_buffer, randomize=False)
+            response = cls._format_response(tentative_buffer)
+            length = len(
+                tokenizer.encode(format_prompt(cls.instruction, input) + response)
+            )
             if length > sequence_length:
                 result.append(buffer)
                 buffer = _ChannelData(channel=channel, messages=[msg])
@@ -162,7 +164,7 @@ class DiscordInstructions(Dataset):
         return result
 
     @classmethod
-    def _format_input(cls, data: _ChannelData) -> str:
+    def _format_response(cls, data: _ChannelData) -> str:
         input: list[str] = []
         for grp in data["messages"]:
             message_concat = (
@@ -178,30 +180,28 @@ class DiscordInstructions(Dataset):
         return input_str
 
     @classmethod
-    def _format_instruction(cls, data: _ChannelData, randomize=True) -> str:
+    def _format_input(cls, data: _ChannelData, randomize=True) -> str:
         users = list(set(m["user"]["name"] for m in data["messages"]))
         random.shuffle(users)
 
-        append_channel_instruction = not randomize or random.random() < 0.5
-        append_user_instruction = not randomize or random.random() < 0.5
+        append_channel = not randomize or random.random() < 0.5
+        append_user = not randomize or random.random() < 0.5
 
-        instruction = cls.instruction
-        if append_channel_instruction:
-            instruction += " " + cls._format_channel_instruction(
-                data["channel"]["name"]
-            )
-        if append_user_instruction:
-            instruction += " " + cls._format_user_instruction(users)
+        input = ""
+        if append_channel:
+            input += " " + cls._format_channel_input(data["channel"]["name"])
+        if append_user:
+            input += " " + cls._format_user_input(users)
 
-        return instruction
+        return input
 
     @classmethod
-    def _format_channel_instruction(cls, channel: str):
+    def _format_channel_input(cls, channel: str):
         channel = channel.lower()
         return f"The conversation takes place in #{channel}."
 
     @classmethod
-    def _format_user_instruction(cls, users: list[str]) -> str:
+    def _format_user_input(cls, users: list[str]) -> str:
         assert len(users)
         last = users[-1].lower()
         head = [u.lower() for u in users[:-1]]
@@ -227,26 +227,29 @@ class DiscordInstructions(Dataset):
 
         # Tokenize
         channel_data = _ChannelData(channel=sample["channel"], messages=messages)
-        instr = self._format_instruction(channel_data)
         input = self._format_input(channel_data)
+        resp = self._format_response(channel_data)
 
-        instr_tokens = self.tokenizer.encode(instr)
-        input_tokens = self.tokenizer.encode(input)
-        tokens = instr_tokens + input_tokens
-        if len(tokens) > self.sequence_length:
-            logger.warning(
-                f"Sequence is longer than {self.sequence_length} ({len(tokens)})"
-            )
-            tokens = tokens[: self.sequence_length]
+        header = format_prompt(self.instruction, input)
+        header_tokens = self.tokenizer.encode(header)
+        resp_tokens = self.tokenizer.encode(resp)[1:]
+        tokens = header_tokens + resp_tokens
 
         # Truncate final line by random amount
-        final_msg = self._format_input(
+        final_msg = self._format_response(
             _ChannelData(channel=sample["channel"], messages=[messages[-1]])
         )
         final_msg_tokens = self.tokenizer.encode(final_msg)
         min_end = len(tokens) - len(final_msg_tokens)
         end = random.randrange(min_end, len(tokens))
         tokens_truncated = tokens[:end]
+
+        # Sanity check
+        if len(tokens_truncated) > self.sequence_length:
+            logger.warning(
+                f"Sequence is longer than {self.sequence_length} ({len(tokens_truncated)})"
+            )
+            tokens_truncated = tokens_truncated[: self.sequence_length]
 
         # Return
         input = torch.LongTensor(tokens_truncated[:-1])

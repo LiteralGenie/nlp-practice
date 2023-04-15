@@ -131,9 +131,11 @@ class InstructionDataset(Dataset):
                 f"Skipping {len(truncated)} un-truncate-able sequences longer than {sequence_length} tokens"
             )
         if invalid:
-            msgs = [f"{x['idx']} - {x['data']['instruction']}"[:75] for x in invalid]
-            if len(msgs) > 9:
-                msgs = msgs[:9] + ["..."]
+            msgs = []
+            for x in invalid[:9]:
+                msgs.append(tokenizer.decode(x["head"][:75]))
+            if len(invalid) > 9:
+                msgs.append("...")
             msgs = "\n\t".join(msgs)
             logger.warning(
                 f"Skipping {len(invalid)} un-truncate-able sequences longer than {sequence_length} tokens\n\t{msgs}"
