@@ -1,12 +1,13 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import deepspeed
 import fire
 import torch
 from datasets import Dataset
+from deepspeed import DeepSpeedConfig, DeepSpeedEngine
 from loguru import logger
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
@@ -22,6 +23,9 @@ torch.manual_seed(123)
 
 ###
 
+# @TODO: automatic step resume
+# @TODO: save model name as key
+
 
 @dataclass
 class _Params:
@@ -29,13 +33,13 @@ class _Params:
     batch_size_test: int | None = None
     epochs: int = 10
     loss_window: int = 50
-    lr: float = 2e-5
+    lr: float = 2e-7
     model_id: str = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     out_dir: str = str(paths.CHECKPOINT_DIR / "opt2.7")
     resume_from: str | None = str(paths.CHECKPOINT_DIR / "opt2.7")
-    save_steps: int = 200
+    save_steps: int = 400
     sequence_length: int = 1024
-    test_split: float = 0.1
+    test_split: float = 0.05
     use_cached_data: bool = True
     weight_decay: float = 0
 
@@ -68,6 +72,7 @@ def train(p: _Params):
     ds_discord = DiscordInstructions.load(tokenizer, p.sequence_length, from_cache=True)
     ds_instructions = InstructionDataset.load(tokenizer, p.sequence_length)
     ds = MergedDataset([ds_discord, ds_instructions])
+    ds = ds_discord
 
     test_size = round(len(ds) * p.test_split)
     train_ds, test_ds = random_split(ds, [len(ds) - test_size, test_size])
@@ -107,12 +112,22 @@ def train(p: _Params):
             contiguous_gradients=True,
         ),
         steps_per_print=1e10,
+        tensorboard=dict(
+            enabled=True,
+            output_path=paths.DATA_DIR / "tensorboard",
+            job_name=p.model_id,
+        ),
     )
     logger.info("Initializing engine")
     model_engine, _, _, _ = deepspeed.initialize(
         config=config,
         model=model,
     )
+    model_engine: DeepSpeedEngine = cast(model_engine, DeepSpeedEngine)
+
+    ds_config: DeepSpeedConfig = model_engine.config
+    monitor = model_engine.monitor_config
+
     if p.resume_from_fp:
         logger.info(f"Resuming from {p.resume_from_fp}")
         model_engine.load_checkpoint(load_dir=p.resume_from_fp)
